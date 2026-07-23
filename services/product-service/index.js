@@ -62,10 +62,158 @@ app.use(
   swaggerUi.serve,
   swaggerUi.setup({
     openapi: '3.0.0',
-    info: { title: 'Product Service', version: '1.0.0' },
+    info: {
+      title: 'Product Service',
+      version: '1.0.0',
+      description: 'Product microservice: katalog produk + endpoint chaos untuk simulasi kegagalan (circuit breaker demo).',
+    },
+    servers: [{ url: '/', description: 'Direct' }, { url: '/api/products', description: 'Via API Gateway' }],
+    tags: [{ name: 'Products' }, { name: 'Admin' }, { name: 'Health' }],
     paths: {
-      '/products': { get: { summary: 'Daftar produk' }, post: { summary: 'Buat produk (admin)' } },
-      '/products/{id}': { get: { summary: 'Detail produk' } },
+      '/health': {
+        get: {
+          tags: ['Health'],
+          summary: 'Health check',
+          responses: {
+            200: {
+              description: 'Service sehat',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/HealthResponse' } } },
+            },
+          },
+        },
+      },
+      '/products': {
+        get: {
+          tags: ['Products'],
+          summary: 'Daftar semua produk',
+          responses: {
+            200: {
+              description: 'Daftar produk',
+              content: {
+                'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Product' } } },
+              },
+            },
+            503: {
+              description: 'Service sedang down (mode chaos)',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+            },
+          },
+        },
+        post: {
+          tags: ['Products'],
+          summary: 'Buat produk baru (butuh role admin)',
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ProductRequest' } } },
+          },
+          responses: {
+            201: {
+              description: 'Produk berhasil dibuat',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Product' } } },
+            },
+            400: {
+              description: 'name / price tidak diisi',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+            },
+            401: {
+              description: 'Token tidak ada / tidak valid',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+            },
+            403: {
+              description: 'Butuh role admin',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+            },
+          },
+        },
+      },
+      '/products/{id}': {
+        get: {
+          tags: ['Products'],
+          summary: 'Detail produk berdasarkan ID',
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+          ],
+          responses: {
+            200: {
+              description: 'Detail produk',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Product' } } },
+            },
+            404: {
+              description: 'Produk tidak ditemukan',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+            },
+          },
+        },
+      },
+      '/admin/chaos': {
+        post: {
+          tags: ['Admin'],
+          summary: 'Set kondisi chaos (down / latency) untuk simulasi kegagalan service',
+          requestBody: {
+            required: false,
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ChaosRequest' } } },
+          },
+          responses: {
+            200: {
+              description: 'State chaos terbaru',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ChaosResponse' } } },
+            },
+          },
+        },
+      },
+    },
+    components: {
+      securitySchemes: {
+        bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+      },
+      schemas: {
+        HealthResponse: {
+          type: 'object',
+          properties: {
+            service: { type: 'string' },
+            status: { type: 'string' },
+            chaos: { $ref: '#/components/schemas/ChaosState' },
+          },
+        },
+        Product: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' },
+            name: { type: 'string' },
+            price: { type: 'integer' },
+            stock: { type: 'integer' },
+          },
+        },
+        ProductRequest: {
+          type: 'object',
+          required: ['name', 'price'],
+          properties: {
+            name: { type: 'string', example: 'Kopi Robusta 250g' },
+            price: { type: 'integer', example: 75000 },
+            stock: { type: 'integer', default: 0, example: 50 },
+          },
+        },
+        ChaosState: {
+          type: 'object',
+          properties: { down: { type: 'boolean' }, latencyMs: { type: 'integer' } },
+        },
+        ChaosRequest: {
+          type: 'object',
+          properties: {
+            down: { type: 'boolean', example: true },
+            latencyMs: { type: 'integer', example: 4000 },
+          },
+        },
+        ChaosResponse: {
+          type: 'object',
+          properties: { ok: { type: 'boolean' }, chaos: { $ref: '#/components/schemas/ChaosState' } },
+        },
+        ErrorResponse: {
+          type: 'object',
+          properties: { error: { type: 'string' } },
+        },
+      },
     },
   }),
 )

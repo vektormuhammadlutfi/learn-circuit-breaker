@@ -1,5 +1,6 @@
 const express = require('express')
 const amqp = require('amqplib')
+const swaggerUi = require('swagger-ui-express')
 
 const app = express()
 app.use(express.json())
@@ -9,6 +10,74 @@ const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672'
 const EXCHANGE = 'ecommerce'
 
 const notifications = [] // in-memory store notifikasi yang diterima
+
+// ---------- Swagger ----------
+app.use(
+  '/docs',
+  swaggerUi.serve,
+  swaggerUi.setup({
+    openapi: '3.0.0',
+    info: {
+      title: 'Notification Service',
+      version: '1.0.0',
+      description:
+        'Notification microservice: consumer RabbitMQ yang mendengarkan event order.created dan menyimpannya secara in-memory.',
+    },
+    servers: [{ url: '/', description: 'Direct' }],
+    tags: [{ name: 'Notifications' }, { name: 'Health' }],
+    paths: {
+      '/health': {
+        get: {
+          tags: ['Health'],
+          summary: 'Health check',
+          responses: {
+            200: {
+              description: 'Service sehat',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/HealthResponse' } } },
+            },
+          },
+        },
+      },
+      '/notifications': {
+        get: {
+          tags: ['Notifications'],
+          summary: 'Daftar notifikasi yang diterima dari event order.created',
+          responses: {
+            200: {
+              description: 'Daftar notifikasi',
+              content: {
+                'application/json': {
+                  schema: { type: 'array', items: { $ref: '#/components/schemas/Notification' } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    components: {
+      schemas: {
+        HealthResponse: {
+          type: 'object',
+          properties: {
+            service: { type: 'string' },
+            status: { type: 'string' },
+            totalReceived: { type: 'integer' },
+          },
+        },
+        Notification: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' },
+            message: { type: 'string', example: '📦 Order #1 (Kopi Arabika 250g) status CONFIRMED' },
+            order: { type: 'object', description: 'Payload order yang diterima dari event order.created' },
+            at: { type: 'string', format: 'date-time' },
+          },
+        },
+      },
+    },
+  }),
+)
 
 app.get('/health', (req, res) =>
   res.json({ service: 'notification-service', status: 'UP', totalReceived: notifications.length }),

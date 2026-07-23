@@ -135,10 +135,129 @@ app.use(
   swaggerUi.serve,
   swaggerUi.setup({
     openapi: '3.0.0',
-    info: { title: 'Order Service', version: '1.0.0' },
+    info: {
+      title: 'Order Service',
+      version: '1.0.0',
+      description:
+        'Order microservice: pembuatan order dengan retry + circuit breaker ke product-service, dan publish event ke RabbitMQ.',
+    },
+    servers: [{ url: '/', description: 'Direct' }, { url: '/api/orders', description: 'Via API Gateway' }],
+    tags: [{ name: 'Orders' }, { name: 'Breaker' }, { name: 'Health' }],
     paths: {
-      '/orders': { get: { summary: 'Order milik user (auth)' }, post: { summary: 'Buat order (auth)' } },
-      '/breaker/stats': { get: { summary: 'Status circuit breaker' } },
+      '/health': {
+        get: {
+          tags: ['Health'],
+          summary: 'Health check',
+          responses: {
+            200: {
+              description: 'Service sehat',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/HealthResponse' } } },
+            },
+          },
+        },
+      },
+      '/breaker/stats': {
+        get: {
+          tags: ['Breaker'],
+          summary: 'Status & statistik circuit breaker ke product-service',
+          responses: {
+            200: {
+              description: 'Status breaker',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/BreakerStats' } } },
+            },
+          },
+        },
+      },
+      '/orders': {
+        get: {
+          tags: ['Orders'],
+          summary: 'Daftar order milik user yang sedang login',
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: 'Daftar order',
+              content: {
+                'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Order' } } },
+              },
+            },
+            401: {
+              description: 'Token tidak ada / tidak valid',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+            },
+          },
+        },
+        post: {
+          tags: ['Orders'],
+          summary: 'Buat order baru (mengambil data produk via circuit breaker)',
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/OrderRequest' } } },
+          },
+          responses: {
+            201: {
+              description: 'Order berhasil dibuat',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Order' } } },
+            },
+            400: {
+              description: 'productId tidak diisi',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+            },
+            401: {
+              description: 'Token tidak ada / tidak valid',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+            },
+          },
+        },
+      },
+    },
+    components: {
+      securitySchemes: {
+        bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+      },
+      schemas: {
+        HealthResponse: {
+          type: 'object',
+          properties: {
+            service: { type: 'string' },
+            status: { type: 'string' },
+            breaker: { type: 'string', enum: ['CLOSED', 'HALF_OPEN', 'OPEN'] },
+          },
+        },
+        BreakerStats: {
+          type: 'object',
+          properties: {
+            state: { type: 'string', enum: ['CLOSED', 'HALF_OPEN', 'OPEN'] },
+            stats: { type: 'object', description: 'Statistik internal dari opossum (fires, failures, successes, dll)' },
+          },
+        },
+        OrderRequest: {
+          type: 'object',
+          required: ['productId'],
+          properties: {
+            productId: { type: 'integer', example: 1 },
+            qty: { type: 'integer', default: 1, example: 2 },
+          },
+        },
+        Order: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' },
+            userId: { type: 'integer' },
+            productId: { type: 'integer' },
+            qty: { type: 'integer' },
+            productName: { type: 'string' },
+            price: { type: 'integer', nullable: true },
+            total: { type: 'integer', nullable: true },
+            status: { type: 'string', enum: ['CONFIRMED', 'PENDING_VERIFICATION'] },
+            breakerState: { type: 'string', enum: ['CLOSED', 'HALF_OPEN', 'OPEN'] },
+          },
+        },
+        ErrorResponse: {
+          type: 'object',
+          properties: { error: { type: 'string' } },
+        },
+      },
     },
   }),
 )
