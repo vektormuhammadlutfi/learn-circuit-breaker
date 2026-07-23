@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>E-commerce Microservice — Pertemuan 10</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
+    header { background: #1e293b; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+    header h1 { font-size: 18px; margin: 0; }
+    main { max-width: 900px; margin: 24px auto; padding: 0 16px; display: grid; gap: 20px; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 18px; }
+    .card h2 { margin: 0 0 12px; font-size: 15px; color: #93c5fd; }
+    input, button { font: inherit; padding: 8px 10px; border-radius: 6px; border: 1px solid #475569; }
+    input { background: #0f172a; color: #e2e8f0; }
+    button { background: #3b82f6; color: white; border: none; cursor: pointer; }
+    button:hover { background: #2563eb; }
+    button.ghost { background: #334155; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #334155; }
+    .pill { padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+    .CONFIRMED { background: #065f46; color: #d1fae5; }
+    .PENDING_VERIFICATION { background: #78350f; color: #fed7aa; }
+    #status { font-size: 13px; color: #94a3b8; }
+    .muted { color: #94a3b8; font-size: 13px; }
+    pre { background: #0f172a; padding: 8px; border-radius: 6px; overflow:auto; font-size:12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🛒 E-commerce Microservice</h1>
+    <span id="status">belum login</span>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>1. Autentikasi (JWT)</h2>
+      <div class="row">
+        <input id="username" placeholder="username" value="admin" />
+        <input id="password" type="password" placeholder="password" value="admin123" />
+        <button onclick="register()" class="ghost">Register</button>
+        <button onclick="login()">Login</button>
+        <button onclick="logout()" class="ghost">Logout</button>
+      </div>
+      <p class="muted">Akun admin default: <b>admin / admin123</b> (bisa create produk). Register membuat akun role <b>customer</b>.</p>
+    </section>
+
+    <section class="card">
+      <h2>2. Katalog Produk <button onclick="loadProducts()" class="ghost" style="float:right">↻ refresh</button></h2>
+      <table>
+        <thead><tr><th>ID</th><th>Nama</th><th>Harga</th><th>Stok</th><th></th></tr></thead>
+        <tbody id="products"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>3. Pesanan Saya <button onclick="loadOrders()" class="ghost" style="float:right">↻ refresh</button></h2>
+      <table>
+        <thead><tr><th>#</th><th>Produk</th><th>Qty</th><th>Total</th><th>Status</th><th>Breaker</th></tr></thead>
+        <tbody id="orders"></tbody>
+      </table>
+      <p class="muted">Order saat product-service mati → status <b>PENDING_VERIFICATION</b> (fallback circuit breaker).</p>
+    </section>
+  </main>
+
+  <script>
+    let token = localStorage.getItem('token') || '';
+    let username = localStorage.getItem('username') || '';
+    const rp = (m) => document.getElementById('status').textContent = m;
+    const authHeader = () => token ? { 'Authorization': 'Bearer ' + token } : {};
+    if (token) rp('login sebagai ' + username);
+
+    async function register() {
+      const body = { username: val('username'), password: val('password') };
+      const r = await fetch('/api/auth/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const d = await r.json();
+      rp(r.ok ? 'registered: ' + d.username : 'gagal register: ' + (d.error||''));
+    }
+    async function login() {
+      const body = { username: val('username'), password: val('password') };
+      const r = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const d = await r.json();
+      if (r.ok) { token = d.token; username = body.username; localStorage.setItem('token', token); localStorage.setItem('username', username); rp('login sebagai ' + username + ' (' + d.role + ')'); loadOrders(); }
+      else rp('gagal login: ' + (d.error||''));
+    }
+    function logout() { token=''; username=''; localStorage.clear(); rp('belum login'); }
+    const val = (id) => document.getElementById(id).value;
+
+    async function loadProducts() {
+      const r = await fetch('/api/products');
+      const list = await r.json();
+      document.getElementById('products').innerHTML = list.map(p => `
+        <tr><td>${p.id}</td><td>${p.name}</td><td>Rp${Number(p.price).toLocaleString('id-ID')}</td>
+        <td>${p.stock}</td><td><button onclick="order(${p.id})">Pesan</button></td></tr>`).join('');
+    }
+    async function order(productId) {
+      if (!token) return rp('login dulu untuk memesan');
+      const r = await fetch('/api/orders', { method:'POST', headers:{'Content-Type':'application/json', ...authHeader()}, body: JSON.stringify({ productId, qty: 1 }) });
+      const d = await r.json();
+      rp(r.ok ? ('order #' + d.id + ' → ' + d.status) : ('gagal order: ' + (d.error||'')));
+      loadOrders();
+    }
+    async function loadOrders() {
+      if (!token) { document.getElementById('orders').innerHTML=''; return; }
+      const r = await fetch('/api/orders', { headers: authHeader() });
+      if (!r.ok) return;
+      const list = await r.json();
+      document.getElementById('orders').innerHTML = list.map(o => `
+        <tr><td>${o.id}</td><td>${o.productName}</td><td>${o.qty}</td>
+        <td>${o.total!=null ? 'Rp'+Number(o.total).toLocaleString('id-ID') : '-'}</td>
+        <td><span class="pill ${o.status}">${o.status}</span></td><td>${o.breakerState||'-'}</td></tr>`).join('');
+    }
+
+    loadProducts();
+    loadOrders();
+  </script>
+</body>
+</html>

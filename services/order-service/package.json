@@ -1,0 +1,20 @@
+{
+  "name": "order-service",
+  "version": "1.0.0",
+  "description": "Order microservice: Circuit Breaker + RabbitMQ + Postgres + JWT",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "amqplib": "^0.10.4",
+    "axios": "^1.7.7",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "opossum": "^8.1.4",
+    "pg": "^8.13.0",
+    "pg-hstore": "^2.3.4",
+    "sequelize": "^6.37.3",
+    "swagger-ui-express": "^5.0.1"
+  }
+}
